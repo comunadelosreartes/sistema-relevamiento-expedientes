@@ -1,7 +1,6 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from datetime import datetime
 
 # Configuración general
 st.set_page_config(
@@ -19,9 +18,9 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 @st.cache_data(ttl=60)
 def cargar_relevamiento():
     try:
-        # Se lee la hoja RELEVAMIENTO
         df = conn.read(worksheet="RELEVAMIENTO", ttl="1m")
-        # Limpieza básica de nombres de columnas (quitar espacios)
+        # Eliminar columnas completamente vacías y limpiar espacios en encabezados
+        df = df.dropna(how='all', axis=1)
         df.columns = [str(col).strip() for col in df.columns]
         return df
     except Exception as e:
@@ -60,28 +59,23 @@ with tab1:
     st.subheader(f"Expedientes asignados a: {area_usuario}")
     
     if not df_expedientes.empty:
-        # Filtrar por área actual si existe la columna
-        col_area = "area_actual" if "area_actual" in df_expedientes.columns else "BARRIO/CAPILLA VIEJA"
-        
         # Filtro de búsqueda dentro de la bandeja
-        filtro_busqueda = st.text_input("🔍 Buscar en tu bandeja (por Titular, Cuenta o N° Exp):", "")
+        filtro_busqueda = st.text_input("🔍 Buscar en tu bandeja (por Titular, N° Cuenta, N° Expediente, Barrio):", "")
         
         df_area = df_expedientes.copy()
-        if filtro_busqueda:
-            condicion = (
-                df_area["TITULAR/HORROCKS"].astype(str).str.contains(filtro_busqueda, case=False, na=False) |
-                df_area["CONT.(CUENTA)/71"].astype(str).str.contains(filtro_busqueda, case=False, na=False) |
-                df_area["N° EXP./1"].astype(str).str.contains(filtro_busqueda, case=False, na=False)
-            )
-            df_area = df_area[condicion]
+        
+        # Búsqueda segura en todas las columnas para evitar KeyError
+        if filtro_busqueda.strip():
+            mask = df_area.astype(str).apply(
+                lambda row: row.str.contains(filtro_busqueda, case=False, na=False)
+            ).any(axis=1)
+            df_area = df_area[mask]
         
         st.markdown(f"**Total de expedientes encontrados:** `{len(df_area)}`")
         
-        # Vista de tabla interactiva
-        columnas_visibles = [col for col in ["N° EXP./1", "FECHA/3/28/2002", "TITULAR/HORROCKS", "ASUNTO/CONEXIÓN COSTA / RIO", "CONT.(CUENTA)/71", "BARRIO/CAPILLA VIEJA", "DEUDAS CONEXIÓN"] if col in df_area.columns]
-        
+        # Mostrar la tabla completa con scroll horizontal interactivo
         st.dataframe(
-            df_area[columnas_visibles],
+            df_area,
             use_container_width=True,
             hide_index=True
         )
@@ -111,17 +105,14 @@ with tab2:
                 st.error("El campo 'Titular' es obligatorio.")
             else:
                 st.success(f"Expediente para **{titular}** preparado para registrar en el área **{area_usuario}**.")
-                # Próximo paso: append directo a Google Sheets
 
 # --- TAB 3: BUSCADOR GENERAL ---
 with tab3:
     st.subheader("Búsqueda Global en toda la Base Comunitaria")
-    q = st.text_input("🔎 Ingrese cualquier término de búsqueda (Nombre, Calle, N° Cuenta, Catastro):")
+    q = st.text_input("🔎 Ingrese cualquier término de búsqueda (Nombre, Calle, N° Cuenta, Catastro):", key="global_search")
     
     if q and not df_expedientes.empty:
-        # Búsqueda global en todas las filas
-        mask = df_expedientes.astype(str).apply(lambda x: x.str.contains(q, case=False, na=False)).any(axis=1)
+        mask = df_expedientes.astype(str).apply(lambda row: row.str.contains(q, case=False, na=False)).any(axis=1)
         res = df_expedientes[mask]
         st.write(f"Se encontraron **{len(res)}** coincidencias:")
-        st.dataframe(res, use_container_width=True)
-        
+        st.dataframe(res, use_container_width=True, hide_index=True)
