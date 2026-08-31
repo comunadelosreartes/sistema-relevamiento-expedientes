@@ -29,12 +29,24 @@ def cargar_relevamiento():
         st.error(f"Error al conectar con Google Sheets: {e}")
         return pd.DataFrame()
 
-# Función para formatear nomenclatura catastral si son puros dígitos
+# Función para aplicar máscara a la nomenclatura catastral (XX.XX.XX.XX.XX.XXXX.XXX.XX)
 def formatear_nomenclatura(cadena):
     digitos = re.sub(r'\D', '', cadena)
-    # Estructura: 2.2.2.2.2.4.3.2 = 19 dígitos
-    if len(digitos) == 19:
-        return f"{digitos[0:2]}.{digitos[2:4]}.{digitos[4:6]}.{digitos[6:8]}.{digitos[8:10]}.{digitos[10:14]}.{digitos[14:17]}.{digitos[17:19]}"
+    if len(digitos) >= 19:
+        d = digitos[:19]
+        return f"{d[0:2]}.{d[2:4]}.{d[4:6]}.{d[6:8]}.{d[8:10]}.{d[10:14]}.{d[14:17]}.{d[17:19]}"
+    elif len(digitos) > 0:
+        # Formateo parcial mientras escribe
+        partes = []
+        cortes = [2, 2, 2, 2, 2, 4, 3, 2]
+        idx = 0
+        for corte in cortes:
+            if idx < len(digitos):
+                partes.append(digitos[idx:idx+corte])
+                idx += corte
+            else:
+                break
+        return ".".join(partes)
     return cadena
 
 # Cargar la base de datos
@@ -102,11 +114,20 @@ with tab2:
             profesional = st.text_input("Profesional Interviniente:", placeholder="Arq. / Ing. / MMO")
         with col2:
             cuenta = st.text_input("N° Cuenta Municipal:*", placeholder="Ej: 16300")
-            nomenclatura_input = st.text_input(
-                "Nomenclatura Catastral (XX.XX.XX.XX.XX.XXXX.XXX.XX):",
-                value="12.01.18.--.--.----.---.00",
-                help="Formato base precargado. Puede modificar o reemplazar los guiones por los dígitos correspondientes."
+            
+            # Campo de Nomenclatura con Formateo e Interpretación Inteligente
+            nomenclatura_raw = st.text_input(
+                "Nomenclatura Catastral (19 números):",
+                placeholder="Ej: 1201180502000900700",
+                help="Pegue o escriba los 19 dígitos de corrido. Los puntos fijos se intercalan automáticamente."
             )
+            nomenclatura_formatted = formatear_nomenclatura(nomenclatura_raw)
+            if nomenclatura_raw.strip():
+                if len(re.sub(r'\D', '', nomenclatura_raw)) >= 19:
+                    st.success(f"📌 **Máscara Aplicada:** `{nomenclatura_formatted}`")
+                else:
+                    st.caption(f"✍️ **Vista previa:** `{nomenclatura_formatted}` (Faltan dígitos)")
+
             barrio = st.selectbox("Barrio / Sector:", ["LOS REARTES", "CAPILLA VIEJA", "EL VERGEL", "LA ISLA", "GUTIERREZ", "OTRO"])
         with col3:
             asunto = st.selectbox("Asunto / Tipo de Obra:", [
@@ -141,7 +162,7 @@ with tab2:
             "Seleccione la modalidad de derivación:*",
             [
                 "Remitir a Gestión de Cobranzas y Rentas para Control de Deuda y Estado de Cuenta",
-                "Derivar a otra área especifica (Omitir / Eximir verificación previa de deuda)"
+                "Derivar a otra área específica (Omitir / Eximir verificación previa de deuda)"
             ]
         )
         
@@ -150,11 +171,11 @@ with tab2:
         if "otra área" in opcion_derivacion:
             areas_posibles = [a for a in LISTA_AREAS if a != "Gestión de Cobranzas / Rentas"]
             area_destino_final = st.selectbox(
-                "Seleccione el Área de Destino:",
+                "Seleccione el Área de Destino Directo:",
                 areas_posibles,
-                help="Seleccione el área responsable a la que se derivará directamente este expediente."
+                help="Seleccione el área responsable a la que se remitirá este expediente."
             )
-            st.warning(f"⚠️ **Atención:** El expediente se asignará a **{area_destino_final}**. Se registrará en la base que se omitió la verificación previa de deuda en Cobranzas.")
+            st.warning(f"⚠️ **Atención:** El expediente se asignará directamente a **{area_destino_final}**. Se registrará en la base que se omitió el paso previo por Cobranzas.")
 
         observaciones = st.text_area("Observaciones adicionales / Notas internas de recepción:", placeholder="Anotaciones complementarias...")
 
@@ -164,10 +185,7 @@ with tab2:
             if not titular or not cuenta or not nro_exp:
                 st.error("⚠️ Por favor complete los campos obligatorios (*): N° Expediente, Titular y N° Cuenta.")
             else:
-                # Formatear la nomenclatura cadastral
-                nomenclatura_final = formatear_nomenclatura(nomenclatura_input)
-                
-                # Definir estado y nota según modalidad seleccionada
+                # Definir estado e historial según modalidad
                 if area_destino_final == "Gestión de Cobranzas / Rentas":
                     estado_inicial = "PENDIENTE CONTROL DE DEUDA"
                     control_deuda_nota = "Requerido - Derivado a Cobranzas"
@@ -177,7 +195,7 @@ with tab2:
                     control_deuda_nota = f"Omitido / Salteo Autorizado (Derivado a {area_destino_final})"
                     msj_derivacion = f"🚀 **Expediente derivado directamente a {area_destino_final}** (Salteo de verificación de deuda registrado)."
 
-                # Consolidar documentación tildada
+                # Consolidar lista de cotejo tildada
                 docs_presentados = []
                 if req_pago: docs_presentados.append("Arancel $8000")
                 if req_nota: docs_presentados.append("Nota Solicitud")
@@ -190,13 +208,13 @@ with tab2:
                 
                 doc_str = ", ".join(docs_presentados) if docs_presentados else "Sin documentación adjunta"
 
-                # Armar nueva fila para Google Sheets
+                # Armar la nueva fila para la base
                 nueva_fila = pd.DataFrame([{
                     "N° EXPEDIENTE": nro_exp,
                     "TITULAR": titular,
                     "PROFESIONAL": profesional,
                     "CUENTA": cuenta,
-                    "NOMENCLATURA CATASTRAL": nomenclatura_final,
+                    "NOMENCLATURA CATASTRAL": nomenclatura_formatted,
                     "BARRIO": barrio,
                     "ASUNTO": asunto,
                     "AREA ACTUAL": area_destino_final,
@@ -209,14 +227,14 @@ with tab2:
                 }])
 
                 try:
-                    # Guardar en Google Sheets y refrescar memoria caché
+                    # Guardar cambios en Google Sheets y limpiar caché
                     df_actualizado = pd.concat([df_expedientes, nueva_fila], ignore_index=True)
                     conn.update(worksheet="RELEVAMIENTO", data=df_actualizado)
                     st.cache_data.clear()
                     
                     st.success(f"🎉 **¡Expediente N° {nro_exp} registrado e ingresado al sistema!**")
                     st.info(msj_derivacion)
-                    st.markdown(f"**Nomenclatura Registrada:** `{nomenclatura_final}`")
+                    st.markdown(f"**Nomenclatura Registrada:** `{nomenclatura_formatted}`")
                     st.markdown(f"**Documentación Física Asentada:** `{doc_str}`")
                 except Exception as err:
                     st.error(f"Error al guardar en Google Sheets: {err}")
