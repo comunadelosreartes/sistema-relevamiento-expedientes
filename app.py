@@ -31,21 +31,21 @@ def cargar_relevamiento():
 # Cargar la base de datos
 df_expedientes = cargar_relevamiento()
 
+# Lista oficial de áreas
+LISTA_AREAS = [
+    "Mesa de Entrada / Administración",
+    "Obras Privadas y Catastro",
+    "Comercio e Inspecciones",
+    "Recursos Hídricos / Obras Públicas",
+    "Gestión de Cobranzas / Rentas",
+    "Guardia Local",
+    "Asesoría Letrada"
+]
+
 # Selector de Perfil / Área de Trabajo
 with st.sidebar:
     st.header("👤 Perfil de Usuario")
-    area_usuario = st.selectbox(
-        "Seleccioná tu Área:",
-        [
-            "Mesa de Entrada / Administración",
-            "Obras Privadas y Catastro",
-            "Comercio e Inspecciones",
-            "Recursos Hídricos / Obras Públicas",
-            "Gestión de Cobranzas / Rentas",
-            "Guardia Local",
-            "Asesoría Letrada"
-        ]
-    )
+    area_usuario = st.selectbox("Seleccioná tu Área:", LISTA_AREAS)
     st.info(f"Sesión activa: **{area_usuario}**")
     
     if st.button("🔄 Refrescar Datos"):
@@ -91,7 +91,7 @@ with tab2:
         st.markdown("##### 1. Datos Principales del Inmueble y Titular")
         col1, col2, col3 = st.columns(3)
         with col1:
-            nro_exp = st.text_input("N° Expediente / Tramite:*", placeholder="Ej: EXP-2026-045")
+            nro_exp = st.text_input("N° Expediente / Trámite:*", placeholder="Ej: EXP-2026-045")
             titular = st.text_input("Titular / Propietario:*", placeholder="Nombre y Apellido")
             profesional = st.text_input("Profesional Interviniente:", placeholder="Arq. / Ing. / MMO")
         with col2:
@@ -107,29 +107,43 @@ with tab2:
                 "USUCAPIÓN",
                 "OTRO"
             ])
-            estado_deuda = st.radio("¿Registra Deuda Municipal?:*", [
-                "No Registrar Deuda (Al día)",
-                "Registra Deuda / Pendiente de Verificación"
-            ], help="Si presenta deuda o requiere verificación, se derivará automáticamente a Gestión de Cobranzas.")
 
         st.markdown("---")
-        st.markdown("##### 2. Requisitos para Apertura de Expediente de Obras (Verificación)")
-        st.caption("Marque la documentación que el vecino/profesional adjunta al momento de la presentación en Mesa de Entrada:")
+        st.markdown("##### 2. CheckList de Documentación Presentada (Registro Físico)")
+        st.caption("Marque cada elemento que efectivamente consta en la carpeta entregada:")
         
         chk_col1, chk_col2 = st.columns(2)
         with chk_col1:
-            req_pago = st.checkbox(" Arancel $8.000 Apertura de Expediente abonado.")
-            req_nota = st.checkbox(" Nota de Solicitud firmada por Propietario y Profesional.")
-            req_planos = st.checkbox(" Planos para visación previa (2 copias firmadas).")
-            req_amojonamiento = st.checkbox(" Certificado de Amojonamiento Colegiado A3 (Original/Autenticado).")
+            req_pago = st.checkbox("Arancel $8.000 Apertura de Expediente abonado")
+            req_nota = st.checkbox("Nota de Solicitud firmada por Propietario y Profesional")
+            req_planos = st.checkbox("Planos para visación previa (2 copias firmadas)")
+            req_amojonamiento = st.checkbox("Certificado de Amojonamiento Colegiado A3 (Original/Autenticado)")
         with chk_col2:
-            req_escritura = st.checkbox(" Acreditación Titularidad: Escritura Autenticada / Copia Fiel.")
-            req_boleto = st.checkbox(" Acreditación Titularidad: Boleto C/V (Firmas certificadas/Timbrado + Gastos Carta Doc).")
-            req_factibilidad = st.checkbox(" Factibilidad de Localización (Impacto Ambiental/Industrial si aplica).")
-            req_turismo = st.checkbox(" Adecuación Ley Provincial de Turismo N° 6483 / Dto. 1359/00 (Aloj. Turístico).")
+            req_escritura = st.checkbox("Acreditación Titularidad: Escritura Autenticada / Copia Fiel")
+            req_boleto = st.checkbox("Acreditación Titularidad: Boleto C/V (Firmas certificadas/Timbrado + Carta Doc)")
+            req_factibilidad = st.checkbox("Factibilidad de Localización (Impacto Ambiental/Industrial)")
+            req_turismo = st.checkbox("Adecuación Ley Provincial de Turismo N° 6483 / Dto. 1359/00")
 
         st.markdown("---")
-        observaciones = st.text_area("Observaciones adicionales / Notas de Recepción:", placeholder="Ingrese anotaciones internas de recepción...")
+        st.markdown("##### 3. Circuito de Derivación Inicial y Verificación de Deuda")
+        
+        opcion_derivacion = st.radio(
+            "Seleccione el destino del expediente:*",
+            [
+                "Remitir a Gestión de Cobranzas y Rentas para Control de Deuda y Estado de Cuenta",
+                "Derivar a otra área (Omitir / Eximir verificación previa de deuda)"
+            ]
+        )
+        
+        area_derivada_alternativa = None
+        if "otra área" in opcion_derivacion:
+            area_derivada_alternativa = st.selectbox(
+                "Seleccione el Área de Destino Directo:",
+                [area for area in LISTA_AREAS if area != "Gestión de Cobranzas / Rentas"]
+            )
+            st.warning("⚠️ Nota: Se registrará en la base de datos que se omitió la verificación inicial de deuda en Cobranzas.")
+
+        observaciones = st.text_area("Observaciones adicionales / Notas internas de recepción:", placeholder="Anotaciones complementarias...")
 
         btn_guardar = st.form_submit_button("💾 Registrar Expediente e Iniciar Circuito", type="primary")
 
@@ -137,30 +151,32 @@ with tab2:
             if not titular or not cuenta or not nro_exp:
                 st.error("⚠️ Por favor complete los campos obligatorios (*): N° Expediente, Titular y N° Cuenta.")
             else:
-                # Determinar área de derivación automática
-                if "Registra Deuda" in estado_deuda:
+                # Determinar área de destino e historial de deuda
+                if "Gestión de Cobranzas" in opcion_derivacion:
                     area_destino = "Gestión de Cobranzas / Rentas"
-                    estado_inicial = "PENDIENTE LIBRE DEUDA"
-                    msj_derivacion = "⚠️ Se ha derivado automáticamente a **Gestión de Cobranzas / Rentas** para verificación de deuda."
+                    estado_inicial = "PENDIENTE CONTROL DE DEUDA"
+                    control_deuda_nota = "Requerido - Derivado a Cobranzas"
+                    msj_derivacion = "📨 **Expediente derivado a Gestión de Cobranzas y Rentas** para verificación de estado de cuenta."
                 else:
-                    area_destino = "Obras Privadas y Catastro"
-                    estado_inicial = "EN TRAMITE - INGRESO"
-                    msj_derivacion = "✅ Se ha derivado a **Obras Privadas y Catastro** para revisión técnica."
+                    area_destino = area_derivada_alternativa
+                    estado_inicial = "EN TRAMITE - DERIVACION DIRECTA"
+                    control_deuda_nota = "Omitido / Salteo Autorizado"
+                    msj_derivacion = f"🚀 **Expediente derivado directamente a {area_destino}** (Salteo de verificación de deuda registrado)."
 
                 # Consolidar documentación presentada
-                docs = []
-                if req_pago: docs.append("Arancel $8000 OK")
-                if req_nota: docs.append("Nota Solicitud OK")
-                if req_planos: docs.append("Planos (2 copias) OK")
-                if req_amojonamiento: docs.append("Amojonamiento A3 OK")
-                if req_escritura: docs.append("Escritura Autenticada")
-                if req_boleto: docs.append("Boleto C/V Certificado")
-                if req_factibilidad: docs.append("Factibilidad Ambiental")
-                if req_turismo: docs.append("Ley Turismo N° 6483")
+                docs_presentados = []
+                if req_pago: docs_presentados.append("Arancel $8000")
+                if req_nota: docs_presentados.append("Nota Solicitud")
+                if req_planos: docs_presentados.append("Planos (2 copias)")
+                if req_amojonamiento: docs_presentados.append("Amojonamiento A3")
+                if req_escritura: docs_presentados.append("Escritura Autenticada")
+                if req_boleto: docs_presentados.append("Boleto C/V Certificado")
+                if req_factibilidad: docs_presentados.append("Factibilidad Ambiental")
+                if req_turismo: docs_presentados.append("Ley Turismo N° 6483")
                 
-                doc_str = ", ".join(docs) if docs else "Sin documentación adjunta"
+                doc_str = ", ".join(docs_presentados) if docs_presentados else "Sin documentación adjunta"
 
-                # Armar la nueva fila para la base
+                # Armar la nueva fila para guardar en Google Sheets
                 nueva_fila = pd.DataFrame([{
                     "N° EXPEDIENTE": nro_exp,
                     "TITULAR": titular,
@@ -171,6 +187,7 @@ with tab2:
                     "ASUNTO": asunto,
                     "AREA ACTUAL": area_destino,
                     "ESTADO": estado_inicial,
+                    "VERIFICACION DEUDA": control_deuda_nota,
                     "DOCUMENTACION PRESENTADA": doc_str,
                     "OBSERVACIONES": observaciones,
                     "FECHA INGRESO": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -178,14 +195,14 @@ with tab2:
                 }])
 
                 try:
-                    # Combinar con los datos existentes y guardar en Google Sheets
+                    # Combinar datos existentes con la nueva fila y guardar
                     df_actualizado = pd.concat([df_expedientes, nueva_fila], ignore_index=True)
                     conn.update(worksheet="RELEVAMIENTO", data=df_actualizado)
                     st.cache_data.clear()
                     
-                    st.success(f"🎉 **¡Expediente N° {nro_exp} registrado con éxito!**")
+                    st.success(f"🎉 **¡Expediente N° {nro_exp} registrado e ingresado al sistema!**")
                     st.info(msj_derivacion)
-                    st.write(f"**Documentación presentada:** `{doc_str}`")
+                    st.markdown(f"**Documentación Física Asentada:** `{doc_str}`")
                 except Exception as err:
                     st.error(f"Error al guardar en Google Sheets: {err}")
 
