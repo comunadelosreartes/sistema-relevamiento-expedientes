@@ -147,16 +147,16 @@ with tab2:
             ]
         )
         
-        area_destino_final = "Gestión de Cobranzas / Rentas"
-        
+        # Desplegar la lista de áreas si selecciona derivar a otra área
+        area_destino_seleccionada = None
         if "otra área" in opcion_derivacion:
             areas_posibles = [a for a in LISTA_AREAS if a != "Gestión de Cobranzas / Rentas"]
-            area_destino_final = st.selectbox(
-                "Seleccione el Área de Destino Directo:",
+            area_destino_seleccionada = st.selectbox(
+                "Seleccione el Área de Destino Directo:*",
                 areas_posibles,
                 help="Seleccione el área responsable a la que se remitirá este expediente."
             )
-            st.warning(f"⚠️ **Atención:** El expediente se asignará directamente a **{area_destino_final}**. Se registrará en la base que se omitió el paso previo por Cobranzas.")
+            st.warning(f"⚠️ **Atención:** El expediente se asignará directamente al área seleccionada. Se registrará en la base que se omitió el paso previo por Cobranzas.")
 
         observaciones = st.text_area("Observaciones adicionales / Notas internas de recepción:", placeholder="Anotaciones complementarias...")
 
@@ -165,10 +165,18 @@ with tab2:
         if btn_guardar:
             barrio_final = barrio_otro.strip() if barrio_seleccionado == "OTRO" else barrio_seleccionado
 
+            # Determinar el área de destino real según la opción marcada
+            if "otra área" in opcion_derivacion:
+                area_destino_final = area_destino_seleccionada
+            else:
+                area_destino_final = "Gestión de Cobranzas / Rentas"
+
             if not titular or not cuenta or not nro_exp:
                 st.error("⚠️ Por favor complete los campos obligatorios (*): N° Expediente, Titular y N° Cuenta.")
             elif barrio_seleccionado == "OTRO" and not barrio_final:
                 st.error("⚠️ Por favor ingrese el nombre del Barrio al seleccionar la opción 'OTRO'.")
+            elif "otra área" in opcion_derivacion and not area_destino_final:
+                st.error("⚠️ Por favor seleccione el Área de Destino Directo.")
             else:
                 nomenclatura_final = formatear_nomenclatura(nomenclatura_input)
                 
@@ -193,7 +201,7 @@ with tab2:
                 
                 doc_str = ", ".join(docs_presentados) if docs_presentados else "Sin documentación adjunta"
 
-                # Creación de la fila alineada EXACTAMENTE a las columnas reales del Google Sheet
+                # Creación de la fila alineada a las columnas reales del Google Sheet
                 nueva_fila = pd.DataFrame([{
                     "N° EXP.": nro_exp,
                     "UBICACIÓN EXP.": area_destino_final,
