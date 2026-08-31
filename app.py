@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
+import re
 
 # Configuración general
 st.set_page_config(
@@ -27,6 +28,14 @@ def cargar_relevamiento():
     except Exception as e:
         st.error(f"Error al conectar con Google Sheets: {e}")
         return pd.DataFrame()
+
+# Función para formatear nomenclatura catastral si son puros dígitos
+def formatear_nomenclatura(cadena):
+    digitos = re.sub(r'\D', '', cadena)
+    # Estructura: 2.2.2.2.2.4.3.2 = 19 dígitos
+    if len(digitos) == 19:
+        return f"{digitos[0:2]}.{digitos[2:4]}.{digitos[4:6]}.{digitos[6:8]}.{digitos[8:10]}.{digitos[10:14]}.{digitos[14:17]}.{digitos[17:19]}"
+    return cadena
 
 # Cargar la base de datos
 df_expedientes = cargar_relevamiento()
@@ -60,12 +69,10 @@ with tab1:
     st.subheader(f"Expedientes asignados a: {area_usuario}")
     
     if not df_expedientes.empty:
-        # Filtro de búsqueda dentro de la bandeja
         filtro_busqueda = st.text_input("🔍 Buscar en tu bandeja (por Titular, N° Cuenta, N° Expediente, Barrio):", "")
         
         df_area = df_expedientes.copy()
         
-        # Búsqueda segura en todas las columnas
         if filtro_busqueda.strip():
             mask = df_area.astype(str).apply(
                 lambda row: row.str.contains(filtro_busqueda, case=False, na=False)
@@ -74,7 +81,6 @@ with tab1:
         
         st.markdown(f"**Total de expedientes encontrados:** `{len(df_area)}`")
         
-        # Mostrar la tabla completa
         st.dataframe(
             df_area,
             use_container_width=True,
@@ -96,7 +102,11 @@ with tab2:
             profesional = st.text_input("Profesional Interviniente:", placeholder="Arq. / Ing. / MMO")
         with col2:
             cuenta = st.text_input("N° Cuenta Municipal:*", placeholder="Ej: 16300")
-            nomenclatura = st.text_input("Nomenclatura Catastral:", placeholder="Ej: 04-02-...")
+            nomenclatura_input = st.text_input(
+                "Nomenclatura Catastral (XX.XX.XX.XX.XX.XXXX.XXX.XX):",
+                value="12.01.18.--.--.----.---.00",
+                help="Formato base precargado. Puede modificar o reemplazar los guiones por los dígitos correspondientes."
+            )
             barrio = st.selectbox("Barrio / Sector:", ["LOS REARTES", "CAPILLA VIEJA", "EL VERGEL", "LA ISLA", "GUTIERREZ", "OTRO"])
         with col3:
             asunto = st.selectbox("Asunto / Tipo de Obra:", [
@@ -128,20 +138,23 @@ with tab2:
         st.markdown("##### 3. Circuito de Derivación Inicial y Verificación de Deuda")
         
         opcion_derivacion = st.radio(
-            "Seleccione el destino del expediente:*",
+            "Seleccione la modalidad de derivación:*",
             [
                 "Remitir a Gestión de Cobranzas y Rentas para Control de Deuda y Estado de Cuenta",
-                "Derivar a otra área (Omitir / Eximir verificación previa de deuda)"
+                "Derivar a otra área especifica (Omitir / Eximir verificación previa de deuda)"
             ]
         )
         
-        area_derivada_alternativa = None
+        area_destino_final = "Gestión de Cobranzas / Rentas"
+        
         if "otra área" in opcion_derivacion:
-            area_derivada_alternativa = st.selectbox(
-                "Seleccione el Área de Destino Directo:",
-                [area for area in LISTA_AREAS if area != "Gestión de Cobranzas / Rentas"]
+            areas_posibles = [a for a in LISTA_AREAS if a != "Gestión de Cobranzas / Rentas"]
+            area_destino_final = st.selectbox(
+                "Seleccione el Área de Destino:",
+                areas_posibles,
+                help="Seleccione el área responsable a la que se derivará directamente este expediente."
             )
-            st.warning("⚠️ Nota: Se registrará en la base de datos que se omitió la verificación inicial de deuda en Cobranzas.")
+            st.warning(f"⚠️ **Atención:** El expediente se asignará a **{area_destino_final}**. Se registrará en la base que se omitió la verificación previa de deuda en Cobranzas.")
 
         observaciones = st.text_area("Observaciones adicionales / Notas internas de recepción:", placeholder="Anotaciones complementarias...")
 
@@ -151,19 +164,20 @@ with tab2:
             if not titular or not cuenta or not nro_exp:
                 st.error("⚠️ Por favor complete los campos obligatorios (*): N° Expediente, Titular y N° Cuenta.")
             else:
-                # Determinar área de destino e historial de deuda
-                if "Gestión de Cobranzas" in opcion_derivacion:
-                    area_destino = "Gestión de Cobranzas / Rentas"
+                # Formatear la nomenclatura cadastral
+                nomenclatura_final = formatear_nomenclatura(nomenclatura_input)
+                
+                # Definir estado y nota según modalidad seleccionada
+                if area_destino_final == "Gestión de Cobranzas / Rentas":
                     estado_inicial = "PENDIENTE CONTROL DE DEUDA"
                     control_deuda_nota = "Requerido - Derivado a Cobranzas"
                     msj_derivacion = "📨 **Expediente derivado a Gestión de Cobranzas y Rentas** para verificación de estado de cuenta."
                 else:
-                    area_destino = area_derivada_alternativa
-                    estado_inicial = "EN TRAMITE - DERIVACION DIRECTA"
-                    control_deuda_nota = "Omitido / Salteo Autorizado"
-                    msj_derivacion = f"🚀 **Expediente derivado directamente a {area_destino}** (Salteo de verificación de deuda registrado)."
+                    estado_inicial = f"EN TRAMITE - DERIVADO A {area_destino_final.upper()}"
+                    control_deuda_nota = f"Omitido / Salteo Autorizado (Derivado a {area_destino_final})"
+                    msj_derivacion = f"🚀 **Expediente derivado directamente a {area_destino_final}** (Salteo de verificación de deuda registrado)."
 
-                # Consolidar documentación presentada
+                # Consolidar documentación tildada
                 docs_presentados = []
                 if req_pago: docs_presentados.append("Arancel $8000")
                 if req_nota: docs_presentados.append("Nota Solicitud")
@@ -176,16 +190,16 @@ with tab2:
                 
                 doc_str = ", ".join(docs_presentados) if docs_presentados else "Sin documentación adjunta"
 
-                # Armar la nueva fila para guardar en Google Sheets
+                # Armar nueva fila para Google Sheets
                 nueva_fila = pd.DataFrame([{
                     "N° EXPEDIENTE": nro_exp,
                     "TITULAR": titular,
                     "PROFESIONAL": profesional,
                     "CUENTA": cuenta,
-                    "NOMENCLATURA CATASTRAL": nomenclatura,
+                    "NOMENCLATURA CATASTRAL": nomenclatura_final,
                     "BARRIO": barrio,
                     "ASUNTO": asunto,
-                    "AREA ACTUAL": area_destino,
+                    "AREA ACTUAL": area_destino_final,
                     "ESTADO": estado_inicial,
                     "VERIFICACION DEUDA": control_deuda_nota,
                     "DOCUMENTACION PRESENTADA": doc_str,
@@ -195,13 +209,14 @@ with tab2:
                 }])
 
                 try:
-                    # Combinar datos existentes con la nueva fila y guardar
+                    # Guardar en Google Sheets y refrescar memoria caché
                     df_actualizado = pd.concat([df_expedientes, nueva_fila], ignore_index=True)
                     conn.update(worksheet="RELEVAMIENTO", data=df_actualizado)
                     st.cache_data.clear()
                     
                     st.success(f"🎉 **¡Expediente N° {nro_exp} registrado e ingresado al sistema!**")
                     st.info(msj_derivacion)
+                    st.markdown(f"**Nomenclatura Registrada:** `{nomenclatura_final}`")
                     st.markdown(f"**Documentación Física Asentada:** `{doc_str}`")
                 except Exception as err:
                     st.error(f"Error al guardar en Google Sheets: {err}")
