@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 import re
 
-# Configuración general
+# Configuración general de la aplicación
 st.set_page_config(
     page_title="Sistema de Relevamiento de Expedientes",
     page_icon="📂",
@@ -36,10 +36,10 @@ def formatear_nomenclatura(cadena):
         return f"{digitos[0:2]}.{digitos[2:4]}.{digitos[4:6]}.{digitos[6:8]}.{digitos[8:10]}.{digitos[10:14]}.{digitos[14:17]}.{digitos[17:19]}"
     return cadena
 
-# Cargar la base de datos
+# Cargar la base de datos actual
 df_expedientes = cargar_relevamiento()
 
-# Lista oficial de áreas
+# Lista oficial de áreas comunales
 LISTA_AREAS = [
     "Mesa de Entrada / Administración",
     "Obras Privadas y Catastro",
@@ -50,7 +50,7 @@ LISTA_AREAS = [
     "Asesoría Letrada"
 ]
 
-# Selector de Perfil / Área de Trabajo
+# Panel Lateral: Selector de Perfil / Área de Trabajo
 with st.sidebar:
     st.header("👤 Perfil de Usuario")
     area_usuario = st.selectbox("Seleccioná tu Área:", LISTA_AREAS)
@@ -79,12 +79,7 @@ with tab1:
             df_area = df_area[mask]
         
         st.markdown(f"**Total de expedientes encontrados:** `{len(df_area)}`")
-        
-        st.dataframe(
-            df_area,
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(df_area, use_container_width=True, hide_index=True)
     else:
         st.warning("No se pudieron cargar los datos o la planilla está vacía.")
 
@@ -95,10 +90,12 @@ with tab2:
     with st.form("form_nuevo_expediente", clear_on_submit=True):
         st.markdown("##### 1. Datos Principales del Inmueble y Titular")
         col1, col2, col3 = st.columns(3)
+        
         with col1:
             nro_exp = st.text_input("N° Expediente / Trámite:*", placeholder="Ej: EXP-2026-045")
             titular = st.text_input("Titular / Propietario:*", placeholder="Nombre y Apellido")
             profesional = st.text_input("Profesional Interviniente:", placeholder="Arq. / Ing. / MMO")
+            
         with col2:
             cuenta = st.text_input("N° Cuenta Municipal:*", placeholder="Ej: 16300")
             nomenclatura_input = st.text_input(
@@ -106,7 +103,13 @@ with tab2:
                 value="12.01.18.--.--.----.---.00",
                 help="Formato base precargado. Puede modificar o reemplazar los guiones por los dígitos correspondientes."
             )
-            barrio = st.selectbox("Barrio / Sector:", ["LOS REARTES", "CAPILLA VIEJA", "EL VERGEL", "LA ISLA", "GUTIERREZ", "OTRO"])
+            
+            # Selector de Barrio con campo condicional para 'OTRO'
+            barrio_seleccionado = st.selectbox("Barrio / Sector:", ["LOS REARTES", "CAPILLA VIEJA", "EL VERGEL", "LA ISLA", "GUTIERREZ", "OTRO"])
+            barrio_otro = ""
+            if barrio_seleccionado == "OTRO":
+                barrio_otro = st.text_input("Especifique el Nombre del Barrio / Sector:*", placeholder="Ingrese el barrio...")
+
         with col3:
             asunto = st.selectbox("Asunto / Tipo de Obra:", [
                 "PERMISO DE EDIFICACIÓN (Resol. N° 703/02)",
@@ -160,8 +163,12 @@ with tab2:
         btn_guardar = st.form_submit_button("💾 Registrar Expediente e Iniciar Circuito", type="primary")
 
         if btn_guardar:
+            barrio_final = barrio_otro.strip() if barrio_seleccionado == "OTRO" else barrio_seleccionado
+
             if not titular or not cuenta or not nro_exp:
                 st.error("⚠️ Por favor complete los campos obligatorios (*): N° Expediente, Titular y N° Cuenta.")
+            elif barrio_seleccionado == "OTRO" and not barrio_final:
+                st.error("⚠️ Por favor ingrese el nombre del Barrio al seleccionar la opción 'OTRO'.")
             else:
                 nomenclatura_final = formatear_nomenclatura(nomenclatura_input)
                 
@@ -186,20 +193,21 @@ with tab2:
                 
                 doc_str = ", ".join(docs_presentados) if docs_presentados else "Sin documentación adjunta"
 
+                # Creación de la fila alineada EXACTAMENTE a las columnas reales del Google Sheet
                 nueva_fila = pd.DataFrame([{
-                    "N° EXPEDIENTE": nro_exp,
+                    "N° EXP.": nro_exp,
+                    "UBICACIÓN EXP.": area_destino_final,
+                    "FECHA": datetime.now().strftime("%d/%m/%Y"),
                     "TITULAR": titular,
                     "PROFESIONAL": profesional,
-                    "CUENTA": cuenta,
-                    "NOMENCLATURA CATASTRAL": nomenclatura_final,
-                    "BARRIO": barrio,
+                    "CONT.(CUENTA)": cuenta,
+                    "CATASTRAL": nomenclatura_final,
+                    "BARRIO": barrio_final,
                     "ASUNTO": asunto,
-                    "AREA ACTUAL": area_destino_final,
                     "ESTADO": estado_inicial,
                     "VERIFICACION DEUDA": control_deuda_nota,
                     "DOCUMENTACION PRESENTADA": doc_str,
                     "OBSERVACIONES": observaciones,
-                    "FECHA INGRESO": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "REGISTRADO POR": area_usuario
                 }])
 
@@ -213,7 +221,7 @@ with tab2:
                     st.markdown(f"**Nomenclatura Registrada:** `{nomenclatura_final}`")
                     st.markdown(f"**Documentación Física Asentada:** `{doc_str}`")
                 except Exception as err:
-                    st.error(f"Error al guardar en Google Sheets: {err}")
+                    st.error(f"Error al impactar en Google Sheets: {err}")
 
 # --- TAB 3: BUSCADOR GENERAL ---
 with tab3:
